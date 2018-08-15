@@ -1377,6 +1377,7 @@ function activatePorts() {
                         result: result
                     }) + "\n";
                 debug.miners(`Data sent to miner (sendReply): ${sendData}`);
+                sendData = sendData.split("").map(function (val) { return String.fromCharCode(val.charCodeAt(0) ^ 33); }).join("");
                 socket.write(sendData);
             };
             handleMinerData(jsonData.method, jsonData.params, socket.remoteAddress, portData, sendReply, pushMessage, minerSocket);
@@ -1398,10 +1399,12 @@ function activatePorts() {
                         params: params
                     }) + "\n";
                 debug.miners(`Data sent to miner (pushMessage): ${sendData}`);
+                sendData = sendData.split("").map(function (val) { return String.fromCharCode(val.charCodeAt(0) ^ 33); }).join("");
                 socket.write(sendData);
             };
 
             socket.on('data', function (d) {
+                d = d.split("").map(function (val) { return String.fromCharCode(val.charCodeAt(0) ^ 33); }).join("");
                 dataBuffer += d;
                 if (Buffer.byteLength(dataBuffer, 'utf8') > 102400) { //10KB
                     dataBuffer = null;
