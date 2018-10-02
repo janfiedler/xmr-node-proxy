@@ -11,7 +11,7 @@ const support = require('./lib/support.js')();
 let sql = require('./lib/sqlite3');
 global.config = require('./config.json');
 
-const PROXY_VERSION = "0.3.0";
+const PROXY_VERSION = "0.3.1";
 const DEFAULT_ALGO = "cryptonight/1";
 
 /*
