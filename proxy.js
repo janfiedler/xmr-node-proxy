@@ -8,6 +8,7 @@ const fs = require('fs');
 const async = require('async');
 const uuidV4 = require('uuid/v4');
 const support = require('./lib/support.js')();
+let sql = require('./lib/sqlite3');
 global.config = require('./config.json');
 
 const PROXY_VERSION = "0.3.0";
@@ -80,6 +81,12 @@ function masterMessageHandler(worker, message, handle) {
                 break;
             case 'workerStats':
                 activeWorkers[worker.id][message.minerID] = message.data;
+                break;
+            case 'minerLogin':
+                sql.loginMiner(message.minerID);
+                break;
+            case 'addHashes':
+                sql.addHashes(message.user, message.amount);
                 break;
         }
     }
@@ -1082,6 +1089,8 @@ function handleMinerData(method, params, ip, portData, sendReply, pushMessage, m
                 return;
             }
             process.send({type: 'newMiner', data: miner.port});
+            // Add or ignore miner username to list of miners with default values
+            process.send({minerID: miner.user, type: 'minerLogin'});
             activeMiners[minerId] = miner;
             // clean old miners with the same name/ip/agent
             if (global.config.keepOfflineMiners) {
@@ -1523,8 +1532,51 @@ function checkActivePools() {
 
 // System Init
 
+
+
 if (cluster.isMaster) {
     console.log("Xmr-Node-Proxy (XNP) v" + PROXY_VERSION);
+    (async function () {
+        await sql.connect();
+        await sql.createTables();
+        clusterMasterInit();
+    })();
+} else {
+    /*
+    setInterval(checkAliveMiners, 30000);
+    setInterval(retargetMiners, global.config.pool.retargetTime * 1000);
+    */
+    process.on('message', slaveMessageHandler);
+    global.config.pools.forEach(function(poolData){
+        if (!poolData.coin) poolData.coin = "xmr";
+        activePools[poolData.hostname] = new Pool(poolData);
+        if (poolData.default){
+            defaultPools[poolData.coin] = poolData.hostname;
+        }
+        if (!activePools.hasOwnProperty(activePools[poolData.hostname].coinFuncs.devPool.hostname)){
+            activePools[activePools[poolData.hostname].coinFuncs.devPool.hostname] = new Pool(activePools[poolData.hostname].coinFuncs.devPool);
+        }
+    });
+    process.send({type: 'needPoolState'});
+    setInterval(function(){
+        for (let minerID in activeMiners){
+            if (activeMiners.hasOwnProperty(minerID)){
+                activeMiners[minerID].updateDifficulty();
+            }
+        }
+    }, 45000);
+    setInterval(function(){
+        for (let minerID in activeMiners){
+            if (activeMiners.hasOwnProperty(minerID)){
+                process.send({minerID: minerID, data: activeMiners[minerID].minerStats(), type: 'workerStats'});
+            }
+        }
+    }, 10000);
+    setInterval(checkActivePools, 90000);
+    activatePorts();
+}
+
+function clusterMasterInit(){
     let numWorkers;
     try {
         let argv = require('minimist')(process.argv.slice(2));
@@ -1563,37 +1615,12 @@ if (cluster.isMaster) {
         console.log("Activating Web API server on " + (global.config.httpAddress || "localhost") + ":" + (global.config.httpPort || "8081"));
         activateHTTP();
     }
-} else {
-    /*
-    setInterval(checkAliveMiners, 30000);
-    setInterval(retargetMiners, global.config.pool.retargetTime * 1000);
-    */
-    process.on('message', slaveMessageHandler);
-    global.config.pools.forEach(function(poolData){
-        if (!poolData.coin) poolData.coin = "xmr";
-        activePools[poolData.hostname] = new Pool(poolData);
-        if (poolData.default){
-            defaultPools[poolData.coin] = poolData.hostname;
-        }
-        if (!activePools.hasOwnProperty(activePools[poolData.hostname].coinFuncs.devPool.hostname)){
-            activePools[activePools[poolData.hostname].coinFuncs.devPool.hostname] = new Pool(activePools[poolData.hostname].coinFuncs.devPool);
-        }
-    });
-    process.send({type: 'needPoolState'});
-    setInterval(function(){
-        for (let minerID in activeMiners){
-            if (activeMiners.hasOwnProperty(minerID)){
-                activeMiners[minerID].updateDifficulty();
-            }
-        }
-    }, 45000);
-    setInterval(function(){
-        for (let minerID in activeMiners){
-            if (activeMiners.hasOwnProperty(minerID)){
-                process.send({minerID: minerID, data: activeMiners[minerID].minerStats(), type: 'workerStats'});
-            }
-        }
-    }, 10000);
-    setInterval(checkActivePools, 90000);
-    activatePorts();
 }
+
+process.on('SIGINT', () => {
+    if (cluster.isMaster) {
+        sql.close();
+    }
+});
+
+
