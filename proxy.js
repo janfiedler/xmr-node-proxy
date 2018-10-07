@@ -1192,6 +1192,52 @@ function handleMinerData(method, params, ip, portData, sendReply, pushMessage, m
     }
 }
 
+async function activateRestApi(){
+
+    var express = require('express');
+    var bodyParser = require('body-parser');
+    var app = express();
+
+    app.use(bodyParser.urlencoded({ extended: true }));
+    app.use(bodyParser.json());
+
+    app.get('/api/', async function(req, res) {
+        res.json({ message: 'hooray! welcome to our api!' });
+    });
+
+    app.get('/api/balance', async function(req, res) {
+        if(global.config.apiPrivateKey === req.query.p){
+            let result = await sql.getBalance(req.query.a);
+            res.json(result);
+        } else {
+            res.json({s:false, m:"Wrong privateKey!"});
+        }
+    });
+
+    app.post('/api/reset', async function(req, res) {
+        if(global.config.apiPrivateKey === req.body.p){
+            let result = await sql.resetBalance(req.body.a);
+            res.json(result);
+        } else {
+            res.json({s:false, m:"Wrong privateKey!"});
+        }
+
+    });
+
+    app.post('/api/withdraw', async function(req, res) {
+        if(global.config.apiPrivateKey === req.body.p){
+            let result = await sql.withdrawBalance(req.body.u, req.body.v);
+            res.json(result);
+        } else {
+            res.json({s:false, m:"Wrong privateKey!"});
+        }
+
+    });
+
+    app.listen(global.config.apiPort || "8082");
+
+}
+
 function activateHTTP() {
 	var jsonServer = http.createServer((req, res) => {
 		if (global.config.httpUser && global.config.httpPass) {
@@ -1614,6 +1660,10 @@ function clusterMasterInit(){
     if (global.config.httpEnable) {
         console.log("Activating Web API server on " + (global.config.httpAddress || "localhost") + ":" + (global.config.httpPort || "8081"));
         activateHTTP();
+    }
+    if(global.config.apiEnable) {
+        console.log("Activating rest API server on " + (global.config.httpAddress || "localhost") + ":" + (global.config.apiPort || "8083"));
+        activateRestApi();
     }
 }
 
