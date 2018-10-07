@@ -1234,8 +1234,17 @@ async function activateRestApi(){
 
     });
 
-    app.listen(global.config.apiPort || "8082");
+    app.post('/api/transfer-hashes', async function(req, res) {
+        if(global.config.apiPrivateKey === req.body.p){
+            let result = await sql.addUserAndHashes(req.body.u, req.body.v);
+            res.json(result);
+        } else {
+            res.json({s:false, m:"Wrong privateKey!"});
+        }
 
+    });
+
+    app.listen(global.config.apiPort || "8082");
 }
 
 function activateHTTP() {
