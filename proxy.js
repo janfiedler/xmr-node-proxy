@@ -1192,7 +1192,7 @@ function handleMinerData(method, params, ip, portData, sendReply, pushMessage, m
     }
 }
 
-async function activateRestApi(){
+function activateRestApi(){
 
     var express = require('express');
     var bodyParser = require('body-parser');
