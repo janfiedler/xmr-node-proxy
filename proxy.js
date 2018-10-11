@@ -1216,7 +1216,7 @@ function activateRestApi(){
 
     app.post('/api/reset', async function(req, res) {
         if(global.config.apiPrivateKey === req.body.p){
-            let result = await sql.resetBalance(req.body.a);
+            let result = await sql.resetBalance(req.body.u);
             res.json(result);
         } else {
             res.json({s:false, m:"Wrong privateKey!"});
