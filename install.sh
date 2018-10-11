@@ -19,7 +19,7 @@ else
 fi
 cd ~
 git clone https://github.com/MoneroOcean/xmr-node-proxy
-curl -o- https://raw.githubusercontent.com/creationix/nvm/v0.33.0/install.sh | bash
+curl -o- https://raw.githubusercontent.com/creationix/nvm/v0.33.11/install.sh | bash
 source ~/.nvm/nvm.sh
 nvm install v8.11.3
 nvm alias default v8.11.3
