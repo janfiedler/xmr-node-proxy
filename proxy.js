@@ -1207,7 +1207,7 @@ function activateRestApi(){
 
     app.get('/api/balance', async function(req, res) {
         if(global.config.apiPrivateKey === req.query.p){
-            let result = await sql.getBalance(req.query.a);
+            let result = await sql.getBalance(req.query.u);
             res.json(result);
         } else {
             res.json({s:false, m:"Wrong privateKey!"});
