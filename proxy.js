@@ -47,6 +47,8 @@ let activeCoins = {};
 let bans = {};
 let activePools = {};
 let activeWorkers = {};
+let activePublicWorkers = {"global":{}, miners:[]};
+let globalStats = {};
 let defaultPools = {};
 let accessControl = {};
 let lastAccessControlLoadTime = null;
@@ -82,6 +84,53 @@ function masterMessageHandler(worker, message, handle) {
             case 'workerStats':
                 activeWorkers[worker.id][message.minerID] = message.data;
                 break;
+            case 'publicStats':
+                if(message.data.active){
+                    const i = activePublicWorkers.miners.findIndex(miner => miner.u === message.data.user);
+                    if(i === -1) {
+                        activePublicWorkers.miners.push({u:message.data.user, tS:message.data.avgSpeed, w:[{id:message.minerID, n:message.data.identifier, s:message.data.avgSpeed, h:message.data.hashes, sH: message.data.shares}]})
+                    } else {
+                        const ii = activePublicWorkers.miners[i].w.findIndex(worker => worker.id === message.minerID);
+                        if(ii === -1){
+                            activePublicWorkers.miners[i].w.push({id:message.minerID, n:message.data.identifier, s:message.data.avgSpeed, h:message.data.hashes, sH: message.data.shares});
+                        } else {
+                            activePublicWorkers.miners[i].w[ii].n = message.data.identifier;
+                            activePublicWorkers.miners[i].w[ii].s = message.data.avgSpeed;
+                            activePublicWorkers.miners[i].w[ii].h = message.data.hashes;
+                            activePublicWorkers.miners[i].w[ii].sH = message.data.shares;
+                        }
+                        // Recalculate total average speed for all workers under miner
+                        let totalMinerAverageSpeed = 0;
+                        for (let worker in activePublicWorkers.miners[i].w){
+                            totalMinerAverageSpeed += activePublicWorkers.miners[i].w[worker].s;
+                        }
+                        activePublicWorkers.miners[i].tS = totalMinerAverageSpeed;
+                    }
+                } else {
+                    const i = activePublicWorkers.miners.findIndex(miner => miner.u === message.data.user);
+                    if(i === -1) {
+                        //Already removed
+                    } else {
+                        const ii = activePublicWorkers.miners[i].w.findIndex(worker => worker.id === message.minerID);
+                        if(ii === -1){
+                            //Already removed
+                        } else {
+                            activePublicWorkers.miners[i].w.splice([ii]);
+                            //If this was last worker, delete whole user from public stats
+                            if(activePublicWorkers.miners[i].w.length === 0){
+                                activePublicWorkers.miners.splice([i]);
+                            } else{
+                                // Recalculate total average speed for all workers under miner
+                                let totalMinerAverageSpeed = 0;
+                                for (let worker in activePublicWorkers.miners[i].w){
+                                    totalMinerAverageSpeed += activePublicWorkers.miners[i].w[worker].s;
+                                }
+                                activePublicWorkers.miners[i].tS = totalMinerAverageSpeed;
+                            }
+                        }
+                    }
+                }
+
             case 'minerLogin':
                 sql.loginMiner(message.minerID);
                 break;
@@ -713,6 +762,7 @@ function enumerateWorkerStats() {
             global_stats.hashes += stats.hashes;
             global_stats.hashRate += stats.hashRate;
             global_stats.diff += stats.diff;
+            globalStats = global_stats;
             debug.workers(`Worker: ${poolID} currently has ${stats.miners} miners connected at ${stats.hashRate} h/s with an average diff of ${Math.floor(stats.diff/stats.miners)}`);
         }
     }
@@ -991,6 +1041,24 @@ function Miner(id, params, ip, pushMessage, portData, minerSocket) {
         };
     };
 
+    this.minerPublicStats = function(){
+        if (this.socket.destroyed && !global.config.keepOfflineMiners){
+            return{
+                active: !this.socket.destroyed,
+                user: this.user,
+            };
+        }
+        return {
+            active: !this.socket.destroyed,
+            user: this.user,
+            identifier: this.password,
+            shares: this.shares,
+            hashes: this.hashes,
+            avgSpeed: Math.floor(this.hashes/(Math.floor((Date.now() - this.connectTime)/1000))),
+            diff: this.difficulty,
+        };
+    };
+
     // Support functions for how miners activate and run.
     this.updateDifficulty = function(){
         if (this.hashes > 0 && !this.fixed_diff) {
@@ -1203,6 +1271,15 @@ function activateRestApi(){
 
     app.get('/api/', async function(req, res) {
         res.json({ message: 'hooray! welcome to our api!' });
+    });
+
+    app.get('/api/stats', async function(req, res) {
+        if(global.config.apiPrivateKey === req.query.p){
+            activePublicWorkers.global = globalStats;
+            res.json(activePublicWorkers);
+        } else {
+            res.json({s:false, m:"Wrong privateKey!"});
+        }
     });
 
     app.get('/api/balance', async function(req, res) {
@@ -1623,6 +1700,7 @@ if (cluster.isMaster) {
     setInterval(function(){
         for (let minerID in activeMiners){
             if (activeMiners.hasOwnProperty(minerID)){
+                process.send({minerID: minerID, data: activeMiners[minerID].minerPublicStats(), type: 'publicStats'});
                 process.send({minerID: minerID, data: activeMiners[minerID].minerStats(), type: 'workerStats'});
             }
         }
