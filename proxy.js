@@ -11,8 +11,9 @@ const support = require('./lib/support.js')();
 let sql = require('./lib/sqlite3');
 global.config = require('./config.json');
 
-const PROXY_VERSION = "0.3.2";
-const DEFAULT_ALGO = "cn/1";
+const PROXY_VERSION = "0.3.3";
+const DEFAULT_ALGO      = [ "cn/1", "cn/2" ];
+const DEFAULT_ALGO_PERF = { "cn": 1, "cn/msr": 1.9 };
 
 /*
  General file design/where to find things.
@@ -261,14 +262,13 @@ function Pool(poolData){
     if (poolData.hasOwnProperty('allowSelfSignedSSL')){
         this.allowSelfSignedSSL = !poolData.allowSelfSignedSSL;
     }
-    this.algo = poolData.algo;
-    this.blob_type = poolData.blob_type;
+    const algo_arr = poolData.algo ? (poolData.algo instanceof Array ? poolData.algo : [poolData.algo]) : DEFAULT_ALGO;
+    this.default_algo_set = {};
+    this.algos            = {};
+    for (let i in algo_arr) this.algos[algo_arr[i]] = this.default_algo_set[algo_arr[i]] = 1;
+    this.algos_perf = DEFAULT_ALGO_PERF;
+    this.blob_type  = poolData.blob_type;
 
-    const default_algo = this.algo ? this.algo : DEFAULT_ALGO;
-    this.algos = {};
-    this.algos[default_algo] = 1;
-    this.algos_perf = {};
-    this.algos_perf[default_algo] = 1;
 
     setInterval(function(pool) {
         if (pool.keepAlive && pool.socket && is_active_pool(pool.hostname)) pool.sendData('keepalived');
@@ -735,7 +735,7 @@ function enumerateWorkerStats() {
                             stats.diff += workerData.diff;
                             // process smart miners and assume all other miners to only support pool algo
                             let miner_algos = workerData.algos;
-                            if (!miner_algos) miner_algos[activePools[workerData.pool].algo ? activePools[workerData.pool].algo : DEFAULT_ALGO] = 1;
+                            if (!miner_algos) miner_algos = activePools[workerData.pool].default_algo_set;
     		            if (workerData.pool in pool_algos) { // compute union of miner_algos and pool_algos[workerData.pool]
 			        for (let algo in pool_algos[workerData.pool]) {
 			           if (!(algo in miner_algos)) delete pool_algos[workerData.pool][algo];
@@ -781,7 +781,7 @@ function enumerateWorkerStats() {
     // do update of algo/algo-perf if it was changed
     for (let pool in pool_algos) {
         let pool_algos_perf2 = pool_algos_perf[pool];
-        if (Object.keys(pool_algos_perf2).length === 0) pool_algos_perf2[activePools[pool].algo ? activePools[pool].algo : DEFAULT_ALGO] = 1;
+        if (Object.keys(pool_algos_perf2).length === 0) pool_algos_perf2 = DEFAULT_ALGO_PERF;
         activePools[pool].update_algo_perf(pool_algos[pool], pool_algos_perf2);
     }
 
@@ -890,7 +890,7 @@ function handleNewBlockTemplate(blockTemplate, hostname){
         debug.pool('Storing the previous block template');
         pool.pastBlockTemplates.enq(pool.activeBlocktemplate);
     }
-    if (!blockTemplate.algo) blockTemplate.algo = pool.algo;
+    if (!blockTemplate.algo)      blockTemplate.algo = pool.coinFuncs.detectAlgo(pool.default_algo_set, 16 * parseInt(blockTemplate.blocktemplate_blob[0]) + parseInt(blockTemplate.blocktemplate_blob[1]));
     if (!blockTemplate.blob_type) blockTemplate.blob_type = pool.blob_type;
     pool.activeBlocktemplate = new pool.coinFuncs.MasterBlockTemplate(blockTemplate);
     for (let id in cluster.workers){
