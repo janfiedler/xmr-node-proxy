@@ -1321,6 +1321,15 @@ function activateRestApi(){
 
     });
 
+    app.get('/api/total-hashes', async function(req, res) {
+        if(global.config.apiPrivateKey === req.query.p){
+            let result = await sql.getTotalHashes();
+            res.json(result);
+        } else {
+            res.json({s:false, m:"Wrong privateKey!"});
+        }
+    });
+
     app.listen(global.config.apiPort || "8082");
 }
 
