@@ -1140,18 +1140,18 @@ async function handleMinerData(method, params, ip, portData, sendReply, pushMess
      */
     let miner = activeMiners[params.id];
     // Check for ban here, so preconnected attackers can't continue to screw you
-    /*
-    let isBan = await sql.isBan(ip);
-    if(isBan.s) {
-        if(Date.now() < isBan.r.end) {
-            sendReply("Currently banned (Bad shares!) until: " + new Date(isBan.r.end).toISOString());
-            return;
-        } else {
-            await sql.unBan(ip);
-            console.log("Miner under IP " +ip+ " was unbanned.")
+
+    for(let index in bans){
+        if(bans[index].ip === ip){
+            if(Date.now() < bans[index].end) {
+                sendReply("Currently banned (Bad shares!) until: " + new Date(bans[index].end).toISOString());
+                return;
+            } else {
+                bans.splice(index, 1);
+                console.log("Miner under IP " +ip+ " was unbanned.");
+            }
         }
     }
-    */
 
     switch (method) {
         case 'login':
@@ -1245,10 +1245,9 @@ async function handleMinerData(method, params, ip, portData, sendReply, pushMess
             }
 
             let shareAccepted = miner.coinFuncs.processShare(miner, job, blockTemplate, params.nonce, params.result);
-
             if (!shareAccepted) {
-                //sql.addBan(miner.ip, Date.now()+43200000);
-                //console.error("Miner " + miner.user + " under IP " + miner.ip + " was banned!");
+                bans.push({"ip":miner.ip, "end":Date.now()+3600000});
+                console.error("Miner " + miner.user + " under IP " + miner.ip + " was banned!");
                 sendReply('Low difficulty share');
                 return;
             }
@@ -1693,11 +1692,6 @@ if (cluster.isMaster) {
         clusterMasterInit();
     })();
 } else {
-    /*
-    (async function () {
-        await sql.connect();
-    })();
-    */
     /*
     setInterval(checkAliveMiners, 30000);
     setInterval(retargetMiners, global.config.pool.retargetTime * 1000);
