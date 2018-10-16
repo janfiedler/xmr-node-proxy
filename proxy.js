@@ -1235,7 +1235,11 @@ function handleMinerData(method, params, ip, portData, sendReply, pushMessage, m
                 sendReply('Block expired');
                 return;
             }
-
+            if(miner.algos === null){
+                sendReply('Mine only algo ' + blockTemplate.algo + "!");
+                return;
+            }
+            
             if(Object.keys(miner.algos)[0] === blockTemplate.algo || Object.keys(miner.algos)[0] === 'cn'){
                 // continune
             } else {
