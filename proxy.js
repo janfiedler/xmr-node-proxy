@@ -1235,18 +1235,6 @@ function handleMinerData(method, params, ip, portData, sendReply, pushMessage, m
                 sendReply('Block expired');
                 return;
             }
-            if(typeof miner.algos === 'undefined'){
-                sendReply('Mine only algo ' + blockTemplate.algo + "!");
-                return;
-            } else {
-                if(Object.keys(miner.algos)[0] === blockTemplate.algo || Object.keys(miner.algos)[0] === 'cn'){
-                    // continune
-                } else {
-                    sendReply('Mine only algo ' + blockTemplate.algo + "!");
-                    console.error("Miner " +miner.user + " use wrong algo " + JSON.stringify(miner.algos) + " not same as pool " + blockTemplate.algo);
-                    return;
-                }
-            }
 
             let shareAccepted = miner.coinFuncs.processShare(miner, job, blockTemplate, params.nonce, params.result);
 
