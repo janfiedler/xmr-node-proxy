@@ -1236,6 +1236,12 @@ function handleMinerData(method, params, ip, portData, sendReply, pushMessage, m
                 return;
             }
 
+            if(Object.keys(miner.algos)[0] !== blockTemplate.algo){
+                sendReply('Mine only algo ' + blockTemplate.algo + "!");
+                console.error("Miner " +miner.user + " use wrong algo " + JSON.stringify(miner.algos) + " not same as pool " + blockTemplate.algo);
+                return;
+            }
+
             let shareAccepted = miner.coinFuncs.processShare(miner, job, blockTemplate, params.nonce, params.result);
 
             if (!shareAccepted) {
