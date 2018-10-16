@@ -1237,7 +1237,7 @@ function handleMinerData(method, params, ip, portData, sendReply, pushMessage, m
             }
             console.log(miner.algos);
             console.log(blockTemplate.algo);
-            if(typeof miner.algos !== 'undefined'){
+            if(typeof miner.algos === 'undefined'){
                 sendReply('Mine only algo ' + blockTemplate.algo + "!");
                 return;
             } else {
