@@ -45,7 +45,7 @@ let activePorts = [];
 let httpResponse = ' 200 OK\nContent-Type: text/plain\nContent-Length: 19\n\nMining Proxy Online';
 let activeMiners = {};
 let activeCoins = {};
-let bans = {};
+let bans = [];
 let activePools = {};
 let activeWorkers = {};
 let activePublicWorkers = {"global":{}, miners:[]};
@@ -1134,17 +1134,23 @@ function isInAccessControl(username, password) {
             && accessControl[username] === password;
 }
 
-function handleMinerData(method, params, ip, portData, sendReply, pushMessage, minerSocket) {
+async function handleMinerData(method, params, ip, portData, sendReply, pushMessage, minerSocket) {
     /*
     Deals with handling the data from miners in a sane-ish fashion.
      */
     let miner = activeMiners[params.id];
     // Check for ban here, so preconnected attackers can't continue to screw you
-    if (ip in bans) {
-        // Handle IP ban off clip.
-        sendReply("IP Address currently banned");
-        return;
+    let isBan = await sql.isBan(ip);
+    if(isBan.s) {
+        if(Date.now() < isBan.r.end) {
+            sendReply("Currently banned (Bad shares!) until: " + new Date(isBan.r.end).toISOString());
+            return;
+        } else {
+            await sql.unBan(ip);
+            console.log("Miner under IP " +ip+ " was unbanned.")
+        }
     }
+
     switch (method) {
         case 'login':
             let difficulty = portData.difficulty;
@@ -1239,6 +1245,8 @@ function handleMinerData(method, params, ip, portData, sendReply, pushMessage, m
             let shareAccepted = miner.coinFuncs.processShare(miner, job, blockTemplate, params.nonce, params.result);
 
             if (!shareAccepted) {
+                sql.addBan(miner.ip, Date.now()+43200000);
+                console.error("Miner " + miner.user + " under IP " + miner.ip + " was banned!");
                 sendReply('Low difficulty share');
                 return;
             }
@@ -1683,6 +1691,9 @@ if (cluster.isMaster) {
         clusterMasterInit();
     })();
 } else {
+    (async function () {
+        await sql.connect();
+    })();
     /*
     setInterval(checkAliveMiners, 30000);
     setInterval(retargetMiners, global.config.pool.retargetTime * 1000);
