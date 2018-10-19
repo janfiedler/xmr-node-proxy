@@ -8,12 +8,13 @@ const fs = require('fs');
 const async = require('async');
 const uuidV4 = require('uuid/v4');
 const support = require('./lib/support.js')();
+const request = require('request');
 let sql = require('./lib/sqlite3');
 global.config = require('./config.json');
 
 const PROXY_VERSION = "0.3.3";
-const DEFAULT_ALGO      = [ "cn/1", "cn/2" ];
-const DEFAULT_ALGO_PERF = { "cn": 1, "cn/msr": 1.9 };
+const DEFAULT_ALGO      = [ "cn/2" ];
+const DEFAULT_ALGO_PERF = { "cn": 1};
 
 /*
  General file design/where to find things.
@@ -54,6 +55,10 @@ let defaultPools = {};
 let accessControl = {};
 let lastAccessControlLoadTime = null;
 let masterStats = {shares: 0, blocks: 0, hashes: 0};
+var proxyTotalHashes = 0;
+var poolTotalHashes = 0;
+// Enable Rebalancing Hashes Between Pool And Proxy
+var enabledBalancing = false;
 
 // IPC Registry
 function masterMessageHandler(worker, message, handle) {
@@ -136,7 +141,11 @@ function masterMessageHandler(worker, message, handle) {
                 sql.loginMiner(message.minerID);
                 break;
             case 'addHashes':
-                sql.addHashes(message.user, message.amount);
+                if(enabledBalancing){
+                    sql.addHashes(message.user, Math.floor((message.amount/100)*90));
+                } else {
+                    sql.addHashes(message.user, message.amount);
+                }
                 break;
         }
     }
@@ -786,6 +795,38 @@ function enumerateWorkerStats() {
     }
 
     console.log(`The proxy currently has ${global_stats.miners} miners connected at ${global_stats.hashRate} h/s${pool_hs} with an average diff of ${Math.floor(global_stats.diff/global_stats.miners)}`);
+    rebalanceHashesAfterBadShare();
+
+}
+
+// Because pool accepting less hashes than really is made. We need rebalancing for keep fair payouts. Without this function is payout decreasing.
+async function rebalanceHashesAfterBadShare(){
+    let poolStats = await getSupportxmrStats();
+    poolTotalHashes = poolStats.totalHashes;
+
+    let proxyStats = await sql.getTotalHashes();
+    proxyTotalHashes = proxyStats.a;
+    if(proxyTotalHashes === null){proxyTotalHashes = 0;}
+
+    if((proxyTotalHashes - poolTotalHashes) > 0){
+        enabledBalancing = true;
+        console.log("Balancing hashes enabled");
+    } else {
+        enabledBalancing = false;
+    }
+}
+
+function getSupportxmrStats(){
+    return new Promise(function (resolve) {
+        request.get({url: "https://www.supportxmr.com/api/miner/'"+ global.config.pools[0].username +"'/stats"}, async function (error, response, body) {
+            if (!error && response.statusCode === 200) {
+                resolve(JSON.parse(body));
+            } else {
+                //throw 'Error';
+                console.log('Error getProxyTotalHashes');
+            }
+        });
+    });
 }
 
 function poolSocket(hostname){
