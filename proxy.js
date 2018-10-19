@@ -10,8 +10,8 @@ const uuidV4 = require('uuid/v4');
 const support = require('./lib/support.js')();
 global.config = require('./config.json');
 
-const PROXY_VERSION = "0.3.3";
-const DEFAULT_ALGO      = [ "cn/1", "cn/2" ];
+const PROXY_VERSION = "0.3.4";
+const DEFAULT_ALGO      = [ "cn/2" ];
 const DEFAULT_ALGO_PERF = { "cn": 1, "cn/msr": 1.9 };
 
 /*
@@ -915,6 +915,14 @@ function Miner(id, params, ip, pushMessage, portData, minerSocket) {
     }
     if (!this.pool) this.pool = defaultPools[portData.coin];
 
+    if (this.algos) for (let algo in activePools[this.pool].default_algo_set) {
+        if (!(algo in this.algos)) {
+            this.error = "Your miner does not have " + algo + " algo support. Please update it.";
+            this.valid_miner = false;
+            break;
+        }
+    }
+
     if (diffSplit.length === 2) {
         this.fixed_diff = true;
         this.difficulty = Number(diffSplit[1]);
@@ -1077,7 +1085,7 @@ function handleMinerData(method, params, ip, portData, sendReply, pushMessage, m
             if (!portData.coin) portData.coin = "xmr";
             miner = new Miner(minerId, params, ip, pushMessage, portData, minerSocket);
             if (!miner.valid_miner) {
-                console.warn(global.threadName + "Invalid miner, disconnecting due to: " + miner.error);
+                console.warn(global.threadName + "Invalid miner: " + miner.logString + ", disconnecting due to: " + miner.error);
                 sendReply(miner.error);
                 return;
             }
