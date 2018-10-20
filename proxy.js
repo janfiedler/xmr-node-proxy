@@ -810,7 +810,7 @@ async function rebalanceHashesAfterBadShare(){
 
     if((proxyTotalHashes - poolTotalHashes) > 0){
         enabledBalancing = true;
-        console.log("Balancing hashes enabled");
+        console.log("Balancing hashes enabled, difference of hashes between proxy and pool: " + (proxyTotalHashes - poolTotalHashes));
     } else {
         enabledBalancing = false;
     }
