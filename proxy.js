@@ -801,12 +801,14 @@ function enumerateWorkerStats() {
 
 // Because pool accepting less hashes than really is made. We need rebalancing for keep fair payouts. Without this function is payout decreasing.
 async function rebalanceHashesAfterBadShare(){
-    let poolStats = await getSupportxmrStats();
-    poolTotalHashes = poolStats.totalHashes;
-
     let proxyStats = await sql.getTotalHashes();
     proxyTotalHashes = proxyStats.a;
     if(proxyTotalHashes === null){proxyTotalHashes = 0;}
+    console.log("proxyTotalHashes: " + proxyTotalHashes);
+
+    let poolStats = await getSupportxmrStats();
+    poolTotalHashes = poolStats.totalHashes;
+    console.log("poolTotalHashes: " + poolTotalHashes);
 
     if((proxyTotalHashes - poolTotalHashes) > 0){
         enabledBalancing = true;
@@ -818,12 +820,12 @@ async function rebalanceHashesAfterBadShare(){
 
 function getSupportxmrStats(){
     return new Promise(function (resolve) {
-        request.get({url: "https://www.supportxmr.com/api/miner/'"+ global.config.pools[0].username +"'/stats"}, async function (error, response, body) {
+        request.get({url: "https://www.supportxmr.com/api/miner/"+ global.config.pools[0].username +"/stats"}, async function (error, response, body) {
             if (!error && response.statusCode === 200) {
                 resolve(JSON.parse(body));
             } else {
                 //throw 'Error';
-                console.log('Error getProxyTotalHashes');
+                console.error('Error getProxyTotalHashes');
             }
         });
     });
