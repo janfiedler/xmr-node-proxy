@@ -10,9 +10,9 @@ const uuidV4 = require('uuid/v4');
 const support = require('./lib/support.js')();
 global.config = require('./config.json');
 
-const PROXY_VERSION = "0.3.4";
-const DEFAULT_ALGO      = [ "cn/2" ];
-const DEFAULT_ALGO_PERF = { "cn": 1, "cn/msr": 1.9 };
+const PROXY_VERSION = "0.8.1";
+const DEFAULT_ALGO      = [ "cn/2", "cn/r" ];
+const DEFAULT_ALGO_PERF = { "cn": 1, "cn/half": 1.9 };
 
 /*
  General file design/where to find things.
@@ -910,7 +910,7 @@ function Miner(id, params, ip, pushMessage, portData, minerSocket) {
         for (let poolName in activePools){
             if (activePools.hasOwnProperty(poolName)){
                 let pool = activePools[poolName];
-                if (pool.coin != portData.coin) continue;
+                if (pool.coin != portData.coin || pool.devPool) continue;
 		if (is_active_pool(poolName)) {
                     this.pool = poolName;
                     break;
@@ -920,11 +920,17 @@ function Miner(id, params, ip, pushMessage, portData, minerSocket) {
     }
     if (!this.pool) this.pool = defaultPools[portData.coin];
 
-    if (this.algos) for (let algo in activePools[this.pool].default_algo_set) {
-        if (!(algo in this.algos)) {
-            this.error = "Your miner does not have " + algo + " algo support. Please update it.";
-            this.valid_miner = false;
-            break;
+    if (this.algos) {
+        const pool = activePools[this.pool];
+        if (pool) {
+            const blockTemplate = pool.activeBlocktemplate;
+            if (blockTemplate && blockTemplate.blocktemplate_blob) {
+                const pool_algo = pool.coinFuncs.detectAlgo(pool.default_algo_set, 16 * parseInt(blockTemplate.blocktemplate_blob[0]) + parseInt(blockTemplate.blocktemplate_blob[1]));
+                if (!(pool_algo in this.algos)) {
+                    this.error = "Your miner does not have " + algo + " algo support. Please update it.";
+                    this.valid_miner = false;
+                }
+            }
         }
     }
 
