@@ -8,6 +8,8 @@ const fs = require('fs');
 const async = require('async');
 const uuidV4 = require('uuid/v4');
 const support = require('./lib/support.js')();
+const request = require('request');
+let sql = require('./lib/sqlite3');
 global.config = require('./config.json');
 
 const PROXY_VERSION = "0.9.1";
@@ -44,13 +46,19 @@ let activePorts = [];
 let httpResponse = ' 200 OK\nContent-Type: text/plain\nContent-Length: 19\n\nMining Proxy Online';
 let activeMiners = {};
 let activeCoins = {};
-let bans = {};
+let bans = [];
 let activePools = {};
 let activeWorkers = {};
+let activePublicWorkers = {"global":{}, miners:[]};
+let globalStats = {};
 let defaultPools = {};
 let accessControl = {};
 let lastAccessControlLoadTime = null;
 let masterStats = {shares: 0, blocks: 0, hashes: 0};
+var proxyTotalHashes = 0;
+var poolTotalHashes = 0;
+// Enable Rebalancing Hashes Between Pool And Proxy
+var enabledBalancing = false;
 
 // IPC Registry
 function masterMessageHandler(worker, message, handle) {
@@ -81,6 +89,63 @@ function masterMessageHandler(worker, message, handle) {
                 break;
             case 'workerStats':
                 activeWorkers[worker.id][message.minerID] = message.data;
+                break;
+            case 'publicStats':
+                if(message.data.active){
+                    const i = activePublicWorkers.miners.findIndex(miner => miner.u === message.data.user);
+                    if(i === -1) {
+                        activePublicWorkers.miners.push({u:message.data.user, tS:message.data.avgSpeed, w:[{id:message.minerID, n:message.data.identifier, s:message.data.avgSpeed, h:message.data.hashes, sH: message.data.shares}]})
+                    } else {
+                        const ii = activePublicWorkers.miners[i].w.findIndex(worker => worker.id === message.minerID);
+                        if(ii === -1){
+                            activePublicWorkers.miners[i].w.push({id:message.minerID, n:message.data.identifier, s:message.data.avgSpeed, h:message.data.hashes, sH: message.data.shares});
+                        } else {
+                            activePublicWorkers.miners[i].w[ii].n = message.data.identifier;
+                            activePublicWorkers.miners[i].w[ii].s = message.data.avgSpeed;
+                            activePublicWorkers.miners[i].w[ii].h = message.data.hashes;
+                            activePublicWorkers.miners[i].w[ii].sH = message.data.shares;
+                        }
+                        // Recalculate total average speed for all workers under miner
+                        let totalMinerAverageSpeed = 0;
+                        for (let worker in activePublicWorkers.miners[i].w){
+                            totalMinerAverageSpeed += activePublicWorkers.miners[i].w[worker].s;
+                        }
+                        activePublicWorkers.miners[i].tS = totalMinerAverageSpeed;
+                    }
+                } else {
+                    const i = activePublicWorkers.miners.findIndex(miner => miner.u === message.data.user);
+                    if(i === -1) {
+                        //Already removed
+                    } else {
+                        const ii = activePublicWorkers.miners[i].w.findIndex(worker => worker.id === message.minerID);
+                        if(ii === -1){
+                            //Already removed
+                        } else {
+                            activePublicWorkers.miners[i].w.splice([ii]);
+                            //If this was last worker, delete whole user from public stats
+                            if(activePublicWorkers.miners[i].w.length === 0){
+                                activePublicWorkers.miners.splice([i]);
+                            } else{
+                                // Recalculate total average speed for all workers under miner
+                                let totalMinerAverageSpeed = 0;
+                                for (let worker in activePublicWorkers.miners[i].w){
+                                    totalMinerAverageSpeed += activePublicWorkers.miners[i].w[worker].s;
+                                }
+                                activePublicWorkers.miners[i].tS = totalMinerAverageSpeed;
+                            }
+                        }
+                    }
+                }
+
+            case 'minerLogin':
+                sql.loginMiner(message.minerID);
+                break;
+            case 'addHashes':
+                if(enabledBalancing){
+                    sql.addHashes(message.user, Math.floor((message.amount/100)*90));
+                } else {
+                    sql.addHashes(message.user, message.amount);
+                }
                 break;
         }
     }
@@ -711,6 +776,7 @@ function enumerateWorkerStats() {
             global_stats.hashes += stats.hashes;
             global_stats.hashRate += stats.hashRate;
             global_stats.diff += stats.diff;
+            globalStats = global_stats;
             debug.workers(`Worker: ${poolID} currently has ${stats.miners} miners connected at ${stats.hashRate} h/s with an average diff of ${Math.floor(stats.diff/stats.miners)}`);
         }
     }
@@ -734,6 +800,40 @@ function enumerateWorkerStats() {
     }
 
     console.log(`The proxy currently has ${global_stats.miners} miners connected at ${global_stats.hashRate} h/s${pool_hs} with an average diff of ${Math.floor(global_stats.diff/global_stats.miners)}`);
+    rebalanceHashesAfterBadShare();
+
+}
+
+// Because pool accepting less hashes than really is made. We need rebalancing for keep fair payouts. Without this function is payout decreasing.
+async function rebalanceHashesAfterBadShare(){
+    let proxyStats = await sql.getTotalHashes();
+    proxyTotalHashes = proxyStats.a;
+    if(proxyTotalHashes === null){proxyTotalHashes = 0;}
+    console.log("proxyTotalHashes: " + proxyTotalHashes);
+
+    let poolStats = await getSupportxmrStats();
+    poolTotalHashes = poolStats.totalHashes;
+    console.log("poolTotalHashes: " + poolTotalHashes);
+
+    if((proxyTotalHashes - poolTotalHashes) > 0){
+        enabledBalancing = true;
+        console.log("Balancing hashes enabled, difference of hashes between proxy and pool: " + (proxyTotalHashes - poolTotalHashes));
+    } else {
+        enabledBalancing = false;
+    }
+}
+
+function getSupportxmrStats(){
+    return new Promise(function (resolve) {
+        request.get({url: "https://www.supportxmr.com/api/miner/"+ global.config.pools[0].username +"/stats"}, async function (error, response, body) {
+            if (!error && response.statusCode === 200) {
+                resolve(JSON.parse(body));
+            } else {
+                //throw 'Error';
+                console.error('Error getProxyTotalHashes');
+            }
+        });
+    });
 }
 
 function poolSocket(hostname){
@@ -1004,6 +1104,24 @@ function Miner(id, params, ip, pushMessage, portData, minerSocket) {
         };
     };
 
+    this.minerPublicStats = function(){
+        if (this.socket.destroyed && !global.config.keepOfflineMiners){
+            return{
+                active: !this.socket.destroyed,
+                user: this.user,
+            };
+        }
+        return {
+            active: !this.socket.destroyed,
+            user: this.user,
+            identifier: this.password,
+            shares: this.shares,
+            hashes: this.hashes,
+            avgSpeed: Math.floor(this.hashes/(Math.floor((Date.now() - this.connectTime)/1000))),
+            diff: this.difficulty,
+        };
+    };
+
     // Support functions for how miners activate and run.
     this.updateDifficulty = function(){
         if (this.hashes > 0 && !this.fixed_diff) {
@@ -1079,17 +1197,25 @@ function isInAccessControl(username, password) {
             && accessControl[username] === password;
 }
 
-function handleMinerData(method, params, ip, portData, sendReply, pushMessage, minerSocket) {
+async function handleMinerData(method, params, ip, portData, sendReply, pushMessage, minerSocket) {
     /*
     Deals with handling the data from miners in a sane-ish fashion.
      */
     let miner = activeMiners[params.id];
     // Check for ban here, so preconnected attackers can't continue to screw you
-    if (ip in bans) {
-        // Handle IP ban off clip.
-        sendReply("IP Address currently banned");
-        return;
+
+    for(let index in bans){
+        if(bans[index].ip === ip){
+            if(Date.now() < bans[index].end) {
+                sendReply("Currently banned (Bad shares!) until: " + new Date(bans[index].end).toISOString());
+                return;
+            } else {
+                bans.splice(index, 1);
+                console.log("Miner under IP " +ip+ " was unbanned.");
+            }
+        }
     }
+
     switch (method) {
         case 'login':
             let difficulty = portData.difficulty;
@@ -1102,6 +1228,8 @@ function handleMinerData(method, params, ip, portData, sendReply, pushMessage, m
                 return;
             }
             process.send({type: 'newMiner', data: miner.port});
+            // Add or ignore miner username to list of miners with default values
+            process.send({minerID: miner.user, type: 'minerLogin'});
             activeMiners[minerId] = miner;
             // clean old miners with the same name/ip/agent
             if (global.config.keepOfflineMiners) {
@@ -1180,8 +1308,9 @@ function handleMinerData(method, params, ip, portData, sendReply, pushMessage, m
             }
 
             let shareAccepted = miner.coinFuncs.processShare(miner, job, blockTemplate, params.nonce, params.result);
-
             if (!shareAccepted) {
+                bans.push({"ip":miner.ip, "end":Date.now()+3600000});
+                console.error("Miner " + miner.user + " under IP " + miner.ip + " was banned!");
                 sendReply('Low difficulty share');
                 return;
             }
@@ -1201,6 +1330,79 @@ function handleMinerData(method, params, ip, portData, sendReply, pushMessage, m
             });
             break;
     }
+}
+
+function activateRestApi(){
+
+    var express = require('express');
+    var bodyParser = require('body-parser');
+    var app = express();
+
+    app.use(bodyParser.urlencoded({ extended: true }));
+    app.use(bodyParser.json());
+
+    app.get('/api/', async function(req, res) {
+        res.json({ message: 'hooray! welcome to our api!' });
+    });
+
+    app.get('/api/stats', async function(req, res) {
+        if(global.config.apiPrivateKey === req.query.p){
+            activePublicWorkers.global = globalStats;
+            res.json(activePublicWorkers);
+        } else {
+            res.json({s:false, m:"Wrong privateKey!"});
+        }
+    });
+
+    app.get('/api/balance', async function(req, res) {
+        if(global.config.apiPrivateKey === req.query.p){
+            let result = await sql.getBalance(req.query.u);
+            res.json(result);
+        } else {
+            res.json({s:false, m:"Wrong privateKey!"});
+        }
+    });
+
+    app.post('/api/reset', async function(req, res) {
+        if(global.config.apiPrivateKey === req.body.p){
+            let result = await sql.resetBalance(req.body.u);
+            res.json(result);
+        } else {
+            res.json({s:false, m:"Wrong privateKey!"});
+        }
+
+    });
+
+    app.post('/api/withdraw', async function(req, res) {
+        if(global.config.apiPrivateKey === req.body.p){
+            let result = await sql.withdrawBalance(req.body.u, req.body.v);
+            res.json(result);
+        } else {
+            res.json({s:false, m:"Wrong privateKey!"});
+        }
+
+    });
+
+    app.post('/api/transfer-hashes', async function(req, res) {
+        if(global.config.apiPrivateKey === req.body.p){
+            let result = await sql.addUserAndHashes(req.body.u, req.body.v);
+            res.json(result);
+        } else {
+            res.json({s:false, m:"Wrong privateKey!"});
+        }
+
+    });
+
+    app.get('/api/total-hashes', async function(req, res) {
+        if(global.config.apiPrivateKey === req.query.p){
+            let result = await sql.getTotalHashes();
+            res.json(result);
+        } else {
+            res.json({s:false, m:"Wrong privateKey!"});
+        }
+    });
+
+    app.listen(global.config.apiPort || "8082");
 }
 
 function activateHTTP() {
@@ -1543,8 +1745,52 @@ function checkActivePools() {
 
 // System Init
 
+
+
 if (cluster.isMaster) {
     console.log("Xmr-Node-Proxy (XNP) v" + PROXY_VERSION);
+    (async function () {
+        await sql.connect();
+        await sql.createTables();
+        clusterMasterInit();
+    })();
+} else {
+    /*
+    setInterval(checkAliveMiners, 30000);
+    setInterval(retargetMiners, global.config.pool.retargetTime * 1000);
+    */
+    process.on('message', slaveMessageHandler);
+    global.config.pools.forEach(function(poolData){
+        if (!poolData.coin) poolData.coin = "xmr";
+        activePools[poolData.hostname] = new Pool(poolData);
+        if (poolData.default){
+            defaultPools[poolData.coin] = poolData.hostname;
+        }
+        if (!activePools.hasOwnProperty(activePools[poolData.hostname].coinFuncs.devPool.hostname)){
+            activePools[activePools[poolData.hostname].coinFuncs.devPool.hostname] = new Pool(activePools[poolData.hostname].coinFuncs.devPool);
+        }
+    });
+    process.send({type: 'needPoolState'});
+    setInterval(function(){
+        for (let minerID in activeMiners){
+            if (activeMiners.hasOwnProperty(minerID)){
+                activeMiners[minerID].updateDifficulty();
+            }
+        }
+    }, 45000);
+    setInterval(function(){
+        for (let minerID in activeMiners){
+            if (activeMiners.hasOwnProperty(minerID)){
+                process.send({minerID: minerID, data: activeMiners[minerID].minerPublicStats(), type: 'publicStats'});
+                process.send({minerID: minerID, data: activeMiners[minerID].minerStats(), type: 'workerStats'});
+            }
+        }
+    }, 10000);
+    setInterval(checkActivePools, 90000);
+    activatePorts();
+}
+
+function clusterMasterInit(){
     let numWorkers;
     try {
         let argv = require('minimist')(process.argv.slice(2));
@@ -1583,37 +1829,16 @@ if (cluster.isMaster) {
         console.log("Activating Web API server on " + (global.config.httpAddress || "localhost") + ":" + (global.config.httpPort || "8081"));
         activateHTTP();
     }
-} else {
-    /*
-    setInterval(checkAliveMiners, 30000);
-    setInterval(retargetMiners, global.config.pool.retargetTime * 1000);
-    */
-    process.on('message', slaveMessageHandler);
-    global.config.pools.forEach(function(poolData){
-        if (!poolData.coin) poolData.coin = "xmr";
-        activePools[poolData.hostname] = new Pool(poolData);
-        if (poolData.default){
-            defaultPools[poolData.coin] = poolData.hostname;
-        }
-        if (!activePools.hasOwnProperty(activePools[poolData.hostname].coinFuncs.devPool.hostname)){
-            activePools[activePools[poolData.hostname].coinFuncs.devPool.hostname] = new Pool(activePools[poolData.hostname].coinFuncs.devPool);
-        }
-    });
-    process.send({type: 'needPoolState'});
-    setInterval(function(){
-        for (let minerID in activeMiners){
-            if (activeMiners.hasOwnProperty(minerID)){
-                activeMiners[minerID].updateDifficulty();
-            }
-        }
-    }, 45000);
-    setInterval(function(){
-        for (let minerID in activeMiners){
-            if (activeMiners.hasOwnProperty(minerID)){
-                process.send({minerID: minerID, data: activeMiners[minerID].minerStats(), type: 'workerStats'});
-            }
-        }
-    }, 10000);
-    setInterval(checkActivePools, 90000);
-    activatePorts();
+    if(global.config.apiEnable) {
+        console.log("Activating rest API server on " + (global.config.httpAddress || "localhost") + ":" + (global.config.apiPort || "8083"));
+        activateRestApi();
+    }
 }
+
+process.on('SIGINT', () => {
+    if (cluster.isMaster) {
+        sql.close();
+    }
+});
+
+

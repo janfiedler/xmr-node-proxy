@@ -21,12 +21,13 @@
     "bignum": "^0.12.5",
     "circular-buffer": "1.0.2",
     "debug": "2.6.9",
-    "express": "4.14.0",
+    "express": "^4.16.4",
     "minimist": "1.2.0",
     "moment": "2.21.0",
-    "request": "^2.79.0",
-    "uuid": "3.0.1",
     "cryptoforknote-util": "git+https://github.com/MoneroOcean/node-cryptoforknote-util.git#v4.1.0",
     "cryptonight-hashing": "git+https://github.com/MoneroOcean/node-cryptonight-hashing.git#v9.0.1"
+    "request": "^2.88.0",
+    "sqlite3": "^4.0.6",
+    "uuid": "3.0.1"
   }
 }
