@@ -12,9 +12,9 @@ const request = require('request');
 let sql = require('./lib/sqlite3');
 global.config = require('./config.json');
 
-const PROXY_VERSION = "0.8.1";
-const DEFAULT_ALGO      = [ "cn/2", "cn/r" ];
-const DEFAULT_ALGO_PERF = { "cn": 1};
+const PROXY_VERSION = "0.9.1";
+const DEFAULT_ALGO      = [ "cn/r" ];
+const DEFAULT_ALGO_PERF = { "cn": 1, "cn/half": 1.9, "cn/rwz": 1.3, "cn/zls": 1.3, "cn/double": 0.5 };
 
 /*
  General file design/where to find things.
@@ -1024,10 +1024,10 @@ function Miner(id, params, ip, pushMessage, portData, minerSocket) {
         const pool = activePools[this.pool];
         if (pool) {
             const blockTemplate = pool.activeBlocktemplate;
-            if (blockTemplate && blockTemplate.blocktemplate_blob) {
-                const pool_algo = pool.coinFuncs.detectAlgo(pool.default_algo_set, 16 * parseInt(blockTemplate.blocktemplate_blob[0]) + parseInt(blockTemplate.blocktemplate_blob[1]));
+            if (blockTemplate && blockTemplate.blob) {
+                const pool_algo = pool.coinFuncs.detectAlgo(pool.default_algo_set, 16 * parseInt(blockTemplate.blob[0]) + parseInt(blockTemplate.blob[1]));
                 if (!(pool_algo in this.algos)) {
-                    this.error = "Your miner does not have " + algo + " algo support. Please update it.";
+                    this.error = "Your miner does not have " + pool_algo + " algo support. Please update it.";
                     this.valid_miner = false;
                 }
             }
