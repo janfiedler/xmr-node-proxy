@@ -12,8 +12,8 @@ const request = require('request');
 let sql = require('./lib/sqlite3');
 global.config = require('./config.json');
 
-const PROXY_VERSION = "0.8.1";
-const DEFAULT_ALGO      = [ "cn/2", "cn/r" ];
+const PROXY_VERSION = "0.15.1";
+const DEFAULT_ALGO      = [ "cn/r", "rx/0" ];
 const DEFAULT_ALGO_PERF = { "cn": 1};
 
 /*
@@ -41,7 +41,8 @@ let debug = {
     misc: require('debug')('misc')
 };
 global.threadName = '';
-let nonceCheck = new RegExp("^[0-9a-f]{8}$");
+const nonceCheck32 = new RegExp("^[0-9a-f]{8}$");
+const nonceCheck64 = new RegExp("^[0-9a-f]{16}$");
 let activePorts = [];
 let httpResponse = ' 200 OK\nContent-Type: text/plain\nContent-Length: 19\n\nMining Proxy Online';
 let activeMiners = {};
@@ -1024,10 +1025,10 @@ function Miner(id, params, ip, pushMessage, portData, minerSocket) {
         const pool = activePools[this.pool];
         if (pool) {
             const blockTemplate = pool.activeBlocktemplate;
-            if (blockTemplate && blockTemplate.blocktemplate_blob) {
-                const pool_algo = pool.coinFuncs.detectAlgo(pool.default_algo_set, 16 * parseInt(blockTemplate.blocktemplate_blob[0]) + parseInt(blockTemplate.blocktemplate_blob[1]));
+            if (blockTemplate && blockTemplate.blob) {
+                const pool_algo = pool.coinFuncs.detectAlgo(pool.default_algo_set, 16 * parseInt(blockTemplate.blob[0]) + parseInt(blockTemplate.blob[1]));
                 if (!(pool_algo in this.algos)) {
-                    this.error = "Your miner does not have " + algo + " algo support. Please update it.";
+                    this.error = "Your miner does not have " + pool_algo + " algo support. Please update it.";
                     this.valid_miner = false;
                 }
             }
@@ -1272,8 +1273,9 @@ async function handleMinerData(method, params, ip, portData, sendReply, pushMess
                 return;
             }
 
-            params.nonce = params.nonce.substr(0, 8).toLowerCase();
-            if (!nonceCheck.test(params.nonce)) {
+            const nonceCheck = job.blob_type == 7 ? nonceCheck64 : nonceCheck32;
+
+            if ((typeof params.nonce !== 'string') || !nonceCheck.test(params.nonce)) {
                 console.warn(global.threadName + 'Malformed nonce: ' + JSON.stringify(params) + ' from ' + miner.logString);
                 sendReply('Duplicate share');
                 return;
