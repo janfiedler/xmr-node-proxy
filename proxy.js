@@ -801,7 +801,7 @@ function enumerateWorkerStats() {
     }
 
     console.log(`The proxy currently has ${global_stats.miners} miners connected at ${global_stats.hashRate} h/s${pool_hs} with an average diff of ${Math.floor(global_stats.diff/global_stats.miners)}`);
-    rebalanceHashesAfterBadShare();
+    //rebalanceHashesAfterBadShare();
 
 }
 
@@ -827,7 +827,6 @@ async function rebalanceHashesAfterBadShare(){
 function getSupportxmrStats(proxyTotalHashes){
     return new Promise(function (resolve) {
         request.get({url: "https://www.supportxmr.com/api/miner/"+ global.config.pools[0].username +"/stats"}, async function (error, response, body) {
-            console.log(body);
             if (!error && response.statusCode === 200) {
                 resolve(JSON.parse(body));
             } else {
