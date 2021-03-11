@@ -812,7 +812,7 @@ async function rebalanceHashesAfterBadShare(){
     if(proxyTotalHashes === null){proxyTotalHashes = 0;}
     console.log("proxyTotalHashes: " + proxyTotalHashes);
 
-    let poolStats = await getSupportxmrStats();
+    let poolStats = await getSupportxmrStats(proxyTotalHashes);
     poolTotalHashes = poolStats.totalHashes;
     console.log("poolTotalHashes: " + poolTotalHashes);
 
@@ -824,14 +824,16 @@ async function rebalanceHashesAfterBadShare(){
     }
 }
 
-function getSupportxmrStats(){
+function getSupportxmrStats(proxyTotalHashes){
     return new Promise(function (resolve) {
         request.get({url: "https://www.supportxmr.com/api/miner/"+ global.config.pools[0].username +"/stats"}, async function (error, response, body) {
+            console.log(body);
             if (!error && response.statusCode === 200) {
                 resolve(JSON.parse(body));
             } else {
                 //throw 'Error';
                 console.error('Error getProxyTotalHashes');
+                resolve(JSON.parse('{"totalHashes":'+proxyTotalHashes+'}'));
             }
         });
     });
